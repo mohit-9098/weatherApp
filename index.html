@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Dashboard - Modern Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <!-- Animated background particles -->
+    <div class="particles" id="particles"></div>
+    
+    <!-- Main container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-cloud-sun"></i>
+                <span>WeatherFlow</span>
+            </div>
+            <div class="header-info">
+                <span class="current-time" id="current-time"></span>
+                <span class="date" id="current-date"></span>
+            </div>
+        </header>
+
+        <!-- Search Section -->
+        <section class="search-section">
+            <div class="search-container">
+                <div class="search-wrapper">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" class="city-input" placeholder="Search city..." aria-label="Search city">
+                    <button class="search-btn" aria-label="Search">
+                        <span>Search</span>
+                    </button>
+                </div>
+                <div class="location-wrapper">
+                    <button class="location-btn" aria-label="Use current location">
+                        <i class="fas fa-location-arrow"></i>
+                        <span>Use My Location</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Weather Content -->
+        <main class="weather-content">
+            <!-- Loading State -->
+            <div class="loading-state" id="loading-state">
+                <div class="loader"></div>
+                <p>Fetching weather data...</p>
+            </div>
+
+            <!-- Error State -->
+            <div class="error-state" id="error-state" style="display: none;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>Unable to fetch weather data. Please try again.</p>
+                <button class="retry-btn">Retry</button>
+            </div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="empty-state">
+                <div class="empty-illustration">
+                    <i class="fas fa-cloud"></i>
+                </div>
+                <h2>Welcome to WeatherFlow</h2>
+                <p>Search for a city or use your location to get started</p>
+            </div>
+
+            <!-- Weather Data (hidden initially) -->
+            <div class="weather-data" id="weather-data" style="display: none;">
+                <!-- Current Weather -->
+                <div class="current-weather-card">
+                    <div class="weather-main">
+                        <div class="weather-info">
+                            <div class="city-name">
+                                <i class="fas fa-map-marker-alt"></i>
+                                <h2 class="city-text"></h2>
+                            </div>
+                            <div class="temperature">
+                                <span class="temp-value"></span>
+                                <span class="temp-unit">°C</span>
+                            </div>
+                            <div class="weather-description">
+                                <span class="description-text"></span>
+                            </div>
+                            <div class="date-info">
+                                <span class="forecast-date"></span>
+                            </div>
+                        </div>
+                        <div class="weather-visual">
+                            <div class="weather-icon-container">
+                                <img class="weather-icon-large" src="" alt="Weather icon">
+                                <div class="weather-icon-glow"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="weather-details">
+                        <div class="detail-item">
+                            <div class="detail-icon">
+                                <i class="fas fa-wind"></i>
+                            </div>
+                            <div class="detail-info">
+                                <span class="detail-label">Wind Speed</span>
+                                <span class="detail-value wind-speed"></span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-icon">
+                                <i class="fas fa-tint"></i>
+                            </div>
+                            <div class="detail-info">
+                                <span class="detail-label">Humidity</span>
+                                <span class="detail-value humidity"></span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-icon">
+                                <i class="fas fa-thermometer-half"></i>
+                            </div>
+                            <div class="detail-info">
+                                <span class="detail-label">Feels Like</span>
+                                <span class="detail-value feels-like"></span>
+                            </div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-icon">
+                                <i class="fas fa-eye"></i>
+                            </div>
+                            <div class="detail-info">
+                                <span class="detail-label">Visibility</span>
+                                <span class="detail-value visibility"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5-Day Forecast -->
+                <div class="forecast-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-calendar-alt"></i> 5-Day Forecast</h3>
+                    </div>
+                    <div class="forecast-cards">
+                        <!-- Cards will be dynamically inserted here -->
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>Weather data provided by <a href="https://openweathermap.org/" target="_blank">OpenWeatherMap</a></p>
+            <p>&copy; 2024 WeatherFlow. Built with <i class="fas fa-heart"></i></p>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <i class="fas fa-info-circle"></i>
+        <span class="toast-message"></span>
+    </div>
+</body>
+</html>
