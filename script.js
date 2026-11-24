@@ -3,9 +3,6 @@
 // Enhanced JavaScript with Animations
 // ========================================
 
-// API Configuration
-const API_KEY = "a7b7c735c5d47bf0fa667c7168fce7dd"; // OpenWeatherMap API Key
-
 // DOM Elements
 const elements = {
     cityInput: document.querySelector(".city-input"),
@@ -24,6 +21,7 @@ const elements = {
 
 // State
 let currentWeatherData = null;
+let activeRequestId = 0;
 
 // Initialize App
 function init() {
@@ -80,8 +78,9 @@ function showLoadingState() {
     elements.loadingState.style.display = 'flex';
 }
 
-function showErrorState() {
+function showErrorState(message = 'Unable to fetch weather data. Please try again.') {
     hideAllStates();
+    elements.errorState.querySelector('p').textContent = message;
     elements.errorState.style.display = 'flex';
 }
 
@@ -123,14 +122,16 @@ function handleLocation() {
         return;
     }
 
-    showLoadingState();
+    const requestId = startWeatherRequest();
 
     navigator.geolocation.getCurrentPosition(
         (position) => {
+            if (requestId !== activeRequestId) return;
             const { latitude, longitude } = position.coords;
-            reverseGeocode(latitude, longitude);
+            reverseGeocode(latitude, longitude, requestId);
         },
         (error) => {
+            if (requestId !== activeRequestId) return;
             showErrorState();
             let errorMessage = 'Unable to get your location. ';
             if (error.code === error.PERMISSION_DENIED) {
@@ -150,169 +151,146 @@ function handleLocation() {
     );
 }
 
-// Get City Coordinates
-function getCityCoordinates(cityName) {
+// Fetch JSON and preserve useful API error details for the error state.
+async function fetchJson(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Weather service returned ${response.status}`);
+    return response.json();
+}
+
+function startWeatherRequest() {
     showLoadingState();
-    
-    const API_URL = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(cityName)}&limit=1&appid=${API_KEY}`;
-    
-    fetch(API_URL)
-        .then(response => {
-            if (!response.ok) throw new Error('City not found');
-            return response.json();
-        })
-        .then(data => {
-            if (!data.length) {
-                showErrorState();
-                showToast(`No coordinates found for "${cityName}"`);
-                return;
-            }
-            const { lat, lon, name, country } = data[0];
-            const displayName = country ? `${name}, ${country}` : name;
-            getWeatherDetails(displayName, lat, lon);
-        })
-        .catch(() => {
-            showErrorState();
-            showToast('Error fetching city data. Please try again.');
-        });
+    return ++activeRequestId;
 }
 
-// Reverse Geocode
-function reverseGeocode(lat, lon) {
-    const API_URL = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${API_KEY}`;
-    
-    fetch(API_URL)
-        .then(response => response.json())
-        .then(data => {
-            if (!data.length) {
-                getWeatherDetails('Your Location', lat, lon);
-                return;
-            }
-            const { name, country } = data[0];
-            const displayName = country ? `${name}, ${country}` : name;
-            getWeatherDetails(displayName, lat, lon);
-        })
-        .catch(() => {
-            getWeatherDetails('Your Location', lat, lon);
-        });
+// Get City Coordinates
+async function getCityCoordinates(cityName) {
+    const requestId = startWeatherRequest();
+    try {
+        const query = encodeURIComponent(cityName.split(',')[0].trim());
+        const data = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?name=${query}&count=10&language=en&format=json`);
+        if (requestId !== activeRequestId) return;
+        const places = data.results || [];
+        if (!places.length) throw new Error(`No location found for "${cityName}". Try adding a country.`);
+
+        const parts = cityName.split(',').map(part => part.trim().toLocaleLowerCase());
+        const place = places.find(item => item.name.toLocaleLowerCase() === parts[0] &&
+            (!parts[1] || item.country?.toLocaleLowerCase() === parts[1] || item.country_code?.toLocaleLowerCase() === parts[1])) || places[0];
+        const displayName = [place.name, place.admin1, place.country].filter(Boolean).join(', ');
+        await getWeatherDetails(displayName, place.latitude, place.longitude, requestId);
+    } catch (error) {
+        if (requestId !== activeRequestId) return;
+        showErrorState(error.message || 'Could not find that location. Check the spelling and try again.');
+    }
 }
 
-// Get Weather Details
-function getWeatherDetails(cityName, latitude, longitude) {
-    const WEATHER_API_URL = `https://api.openweathermap.org/data/2.5/forecast?lat=${latitude}&lon=${longitude}&appid=${API_KEY}&units=metric`;
-    
-    fetch(WEATHER_API_URL)
-        .then(response => {
-            if (!response.ok) throw new Error('Weather data unavailable');
-            return response.json();
-        })
-        .then(data => {
-            if (!data.list || !data.list.length) {
-                showErrorState();
-                showToast('No weather data available for this location');
-                return;
-            }
-            
-            processWeatherData(cityName, data);
-        })
-        .catch(() => {
-            showErrorState();
-            showToast('Error fetching weather data. Please try again.');
-        });
+// Handle current location without requiring a separate reverse-geocoding service.
+function reverseGeocode(lat, lon, requestId) {
+    getWeatherDetails('Your Location', lat, lon, requestId);
 }
 
-// Process Weather Data
-function processWeatherData(cityName, data) {
-    // Filter to get one forecast per day (around noon)
-    const dailyForecasts = [];
-    const seenDates = new Set();
-    
-    data.list.forEach(forecast => {
-        const date = new Date(forecast.dt * 1000);
-        const dateStr = date.toDateString();
-        
-        if (!seenDates.has(dateStr)) {
-            seenDates.add(dateStr);
-            dailyForecasts.push(forecast);
-        }
-        
-        if (dailyForecasts.length >= 5) return;
+// Open-Meteo provides current observations and a daily forecast without an API key.
+async function getWeatherDetails(cityName, latitude, longitude, requestId = startWeatherRequest()) {
+    const params = new URLSearchParams({
+        latitude,
+        longitude,
+        current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,visibility',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max',
+        forecast_days: '6',
+        timezone: 'auto',
+        temperature_unit: 'celsius',
+        wind_speed_unit: 'ms'
     });
 
-    // Update UI
-    updateCurrentWeather(cityName, dailyForecasts[0]);
-    updateForecastCards(dailyForecasts.slice(1));
-    
+    try {
+        const data = await fetchJson(`https://api.open-meteo.com/v1/forecast?${params}`);
+        if (requestId !== activeRequestId) return;
+        if (!data.current || !data.daily?.time?.length) throw new Error('The weather service returned incomplete data.');
+        processWeatherData(cityName, data);
+    } catch (error) {
+        if (requestId !== activeRequestId) return;
+        showErrorState(error.message || 'Could not load weather. Check your connection and try again.');
+    }
+}
+
+function weatherDescription(code) {
+    if (code === 0) return 'Clear sky';
+    if (code === 1) return 'Mainly clear';
+    if (code === 2) return 'Partly cloudy';
+    if (code === 3) return 'Overcast';
+    if (code === 45 || code === 48) return 'Fog';
+    if ([51, 53, 55, 56, 57].includes(code)) return 'Drizzle';
+    if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Rain';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Snow';
+    if ([95, 96, 99].includes(code)) return 'Thunderstorm';
+    return 'Unknown conditions';
+}
+
+function weatherIcon(code, isDay = true) {
+    const day = isDay ? 'd' : 'n';
+    if (code === 0) return `01${day}`;
+    if (code === 1) return `02${day}`;
+    if (code === 2) return `03${day}`;
+    if (code === 3) return `04${day}`;
+    if (code === 45 || code === 48) return `50${day}`;
+    if ([51, 53, 55, 56, 57].includes(code)) return `09${day}`;
+    if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return `10${day}`;
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return `13${day}`;
+    if ([95, 96, 99].includes(code)) return `11${day}`;
+    return `02${day}`;
+}
+
+function processWeatherData(cityName, data) {
+    updateCurrentWeather(cityName, data);
+    updateForecastCards(data.daily);
     showWeatherData();
     showToast(`Weather updated for ${cityName}`);
 }
 
-// Update Current Weather
-function updateCurrentWeather(cityName, weatherItem) {
-    const temp = weatherItem.main.temp;
-    const feelsLike = weatherItem.main.feels_like;
-    const humidity = weatherItem.main.humidity;
-    const windSpeed = weatherItem.wind.speed;
-    const description = weatherItem.weather[0].description;
-    const icon = weatherItem.weather[0].icon;
-    const date = new Date(weatherItem.dt * 1000);
-    
-    // Update DOM elements
+function updateCurrentWeather(cityName, data) {
+    const current = data.current;
+    const code = current.weather_code;
     document.querySelector('.city-text').textContent = cityName;
-    document.querySelector('.temp-value').textContent = Math.round(temp);
-    document.querySelector('.description-text').textContent = description;
-    document.querySelector('.forecast-date').textContent = formatDate(date);
-    document.querySelector('.weather-icon-large').src = `https://openweathermap.org/img/wn/${icon}@4x.png`;
-    document.querySelector('.weather-icon-large').alt = description;
-    
-    // Update details
-    document.querySelector('.wind-speed').textContent = `${windSpeed.toFixed(1)} m/s`;
-    document.querySelector('.humidity').textContent = `${humidity}%`;
-    document.querySelector('.feels-like').textContent = `${Math.round(feelsLike)}°C`;
-    document.querySelector('.visibility').textContent = '10 km'; // Default visibility
+    document.querySelector('.temp-value').textContent = Math.round(current.temperature_2m);
+    document.querySelector('.description-text').textContent = weatherDescription(code);
+    document.querySelector('.forecast-date').textContent = formatDate(new Date(`${current.time.split('T')[0]}T00:00:00Z`), true);
+    document.querySelector('.weather-icon-large').src = `https://openweathermap.org/img/wn/${weatherIcon(code, current.is_day === 1)}@4x.png`;
+    document.querySelector('.weather-icon-large').alt = weatherDescription(code);
+    document.querySelector('.wind-speed').textContent = `${Number(current.wind_speed_10m).toFixed(1)} m/s`;
+    document.querySelector('.humidity').textContent = `${current.relative_humidity_2m}%`;
+    document.querySelector('.feels-like').textContent = `${Math.round(current.apparent_temperature)}°C`;
+    document.querySelector('.visibility').textContent = Number.isFinite(current.visibility)
+        ? `${(current.visibility / 1000).toFixed(1)} km`
+        : 'Unavailable';
 }
 
-// Update Forecast Cards
-function updateForecastCards(forecasts) {
+function updateForecastCards(daily) {
     const container = document.querySelector('.forecast-cards');
     container.innerHTML = '';
-    
-    forecasts.forEach((forecast, index) => {
-        const temp = forecast.main.temp;
-        const humidity = forecast.main.humidity;
-        const windSpeed = forecast.wind.speed;
-        const icon = forecast.weather[0].icon;
-        const date = new Date(forecast.dt * 1000);
-        
+    daily.time.slice(1, 6).forEach((day, index) => {
+        const code = daily.weather_code[index + 1];
         const card = document.createElement('div');
         card.className = 'forecast-card';
         card.style.animationDelay = `${index * 0.1}s`;
         card.innerHTML = `
-            <div class="forecast-date">${formatDate(date)}</div>
-            <img class="forecast-icon" src="https://openweathermap.org/img/wn/${icon}@2x.png" alt="Weather icon">
-            <div class="forecast-temp">${Math.round(temp)}°C</div>
+            <div class="forecast-date">${formatDate(new Date(`${day}T00:00:00Z`), true)}</div>
+            <img class="forecast-icon" src="https://openweathermap.org/img/wn/${weatherIcon(code)}@2x.png" alt="${weatherDescription(code)}">
+            <div class="forecast-temp">${Math.round(daily.temperature_2m_max[index + 1])}°C</div>
             <div class="forecast-details">
-                <div class="forecast-wind">
-                    <i class="fas fa-wind"></i>
-                    <span>${windSpeed.toFixed(1)} m/s</span>
-                </div>
-                <div class="forecast-humidity">
-                    <i class="fas fa-tint"></i>
-                    <span>${humidity}%</span>
-                </div>
+                <div class="forecast-wind"><i class="fas fa-wind"></i><span>${Number(daily.wind_speed_10m_max[index + 1]).toFixed(1)} m/s</span></div>
+                <div class="forecast-humidity"><i class="fas fa-cloud-rain"></i><span>${daily.precipitation_probability_max[index + 1] ?? 0}% rain</span></div>
             </div>
         `;
-        
         container.appendChild(card);
     });
 }
 
 // Format Date
-function formatDate(date) {
+function formatDate(date, useUTC = false) {
     const options = { weekday: 'short', month: 'short', day: 'numeric' };
+    if (useUTC) options.timeZone = 'UTC';
     return date.toLocaleDateString('en-US', options);
 }
-
 // Retry Fetch
 function retryFetch() {
     const lastCity = elements.cityInput.value.trim();
